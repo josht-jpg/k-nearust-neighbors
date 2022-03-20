@@ -123,14 +123,6 @@ mod tests {
     use rustlearn::datasets::iris;
 
     #[test]
-    fn it_works() {
-        assert_eq!(
-            majority_vote(&["yeet", "yeet", "not yeet"]),
-            Some("yeet".to_string())
-        );
-    }
-
-    #[test]
     fn iris() {
         let (measurements, labels) = iris::load_data();
         let measurements_data = measurements.data();
