@@ -53,7 +53,7 @@ trait LinearAlg<T> {
 
     fn squared_distance(&self, w: &[T]) -> T;
 
-    fn distance(&self, w: &[f64]) -> T;
+    fn distance(&self, w: &[T]) -> f64;
 }
 
 impl LinearAlg<f64> for Vec<f64> {
@@ -76,6 +76,50 @@ impl LinearAlg<f64> for Vec<f64> {
 
     fn distance(&self, w: &[f64]) -> f64 {
         self.squared_distance(w).sqrt()
+    }
+}
+impl LinearAlg<f32> for Vec<f32> {
+    fn dot(&self, w: &[f32]) -> f32 {
+        self.iter().zip(w).map(|(v_i, w_i)| v_i * w_i).sum()
+    }
+
+    fn subtract(&self, w: &[f32]) -> Vec<f32> {
+        assert_eq!(self.len(), w.len());
+        self.iter().zip(w).map(|(v_i, w_i)| v_i - w_i).collect()
+    }
+
+    fn sum_of_squares(&self) -> f32 {
+        self.dot(&self)
+    }
+
+    fn squared_distance(&self, w: &[f32]) -> f32 {
+        self.subtract(w).sum_of_squares()
+    }
+
+    fn distance(&self, w: &[f32]) -> f64 {
+        self.squared_distance(w).sqrt() as f64
+    }
+}
+impl LinearAlg<i32> for Vec<i32> {
+    fn dot(&self, w: &[i32]) -> i32 {
+        self.iter().zip(w).map(|(v_i, w_i)| v_i * w_i).sum()
+    }
+
+    fn subtract(&self, w: &[i32]) -> Vec<i32> {
+        assert_eq!(self.len(), w.len());
+        self.iter().zip(w).map(|(v_i, w_i)| v_i - w_i).collect()
+    }
+
+    fn sum_of_squares(&self) -> i32 {
+        self.dot(&self)
+    }
+
+    fn squared_distance(&self, w: &[i32]) -> i32 {
+        self.subtract(w).sum_of_squares()
+    }
+
+    fn distance(&self, w: &[i32]) -> f64 {
+        (self.squared_distance(w) as f64).sqrt()
     }
 }
 
@@ -110,11 +154,10 @@ where
     T: Clone,
 {
     let mut data_copy = data.to_vec();
-
     data_copy.shuffle(&mut thread_rng());
     let cut = ((data.len() as f64) * prob).round() as usize;
 
-    return (data_copy[..cut].to_vec(), data_copy[cut..].to_vec());
+    (data_copy[..cut].to_vec(), data_copy[cut..].to_vec())
 }
 
 #[cfg(test)]
@@ -122,39 +165,63 @@ mod tests {
     use super::*;
     use rustlearn::datasets::iris;
 
-    #[test]
-    fn iris() {
+    enum Label {
+        Setosa = 0,
+        Versicolor = 1,
+        Virginica = 2,
+    }
+
+    impl From<f32> for Label {
+        #[allow(illegal_floating_point_literal_pattern)]
+        fn from(f: f32) -> Self {
+            match f {
+                0. => Self::Setosa,
+                1. => Self::Versicolor,
+                2. => Self::Virginica,
+                _ => panic!("Labels have been incorrectly loaded"),
+            }
+        }
+    }
+
+    fn get_label<'a>(numeric_label: Label) -> &'a str {
+        match numeric_label {
+            Label::Setosa => "Setosa",
+            Label::Versicolor => "Versicolor",
+            Label::Virginica => "Virginica",
+        }
+    }
+
+    fn parse_iris_data<'a>() -> Vec<DataPoint<'a>> {
         let (measurements, labels) = iris::load_data();
-        let measurements_data = measurements.data();
-        let labels_data = labels.data();
+        let measurements = measurements.data();
+        let numeric_labels = labels.data();
 
-        let labels: HashMap<u8, &str> =
-            HashMap::from([(0, "Setosa"), (1, "Versicolor"), (2, "Virginica")]);
+        #[allow(non_snake_case)]
+        let COLUMNS_PER_ROW = 4;
 
-        let data = (0..measurements_data.len())
-            .step_by(4)
+        (0..measurements.len())
+            .step_by(COLUMNS_PER_ROW)
             .map(|i| DataPoint {
                 point: vec![
-                    measurements_data[i] as f64,
-                    measurements_data[i + 1] as f64,
-                    measurements_data[i + 2] as f64,
-                    measurements_data[i + 3] as f64,
+                    measurements[i] as f64,
+                    measurements[i + 1] as f64,
+                    measurements[i + 2] as f64,
+                    measurements[i + 3] as f64,
                 ],
-                label: labels.get(&(labels_data[i / 4] as u8)).unwrap(),
+                label: get_label(Label::from(numeric_labels[i / 4])),
             })
-            .collect::<Vec<DataPoint>>();
+            .collect::<Vec<DataPoint>>()
+    }
 
-        let (iris_train, iris_test) = split_data(&data, 0.70);
-
-        assert_eq!(iris_train.len(), 105);
-        assert_eq!(iris_test.len(), 45);
-
+    fn count_correct_classifications(
+        train_set: &[DataPoint],
+        test_set: &[DataPoint],
+        k: u8,
+    ) -> i32 {
         let mut num_correct = 0;
 
-        let k: u8 = 5;
-
-        for iris in iris_test.iter() {
-            let predicted = knn_classify(k, &iris_train, &iris.point);
+        for iris in test_set.iter() {
+            let predicted = knn_classify(k, &train_set, &iris.point);
             let actual = iris.label;
 
             if let Some(predicted) = predicted {
@@ -164,6 +231,19 @@ mod tests {
             }
         }
 
-        assert!(num_correct as f32 / iris_test.len() as f32 > 0.9)
+        num_correct
+    }
+
+    #[test]
+    fn iris() {
+        let (train_set, test_set) = split_data(&parse_iris_data(), 0.70);
+        assert_eq!(train_set.len(), 105);
+        assert_eq!(test_set.len(), 45);
+
+        let k = 5;
+        let num_correct = count_correct_classifications(&train_set, &test_set, k);
+        let percent_corrent = num_correct as f32 / test_set.len() as f32;
+
+        assert!(percent_corrent > 0.9)
     }
 }
