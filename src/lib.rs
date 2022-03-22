@@ -78,50 +78,6 @@ impl LinearAlg<f64> for Vec<f64> {
         self.squared_distance(w).sqrt()
     }
 }
-impl LinearAlg<f32> for Vec<f32> {
-    fn dot(&self, w: &[f32]) -> f32 {
-        self.iter().zip(w).map(|(v_i, w_i)| v_i * w_i).sum()
-    }
-
-    fn subtract(&self, w: &[f32]) -> Vec<f32> {
-        assert_eq!(self.len(), w.len());
-        self.iter().zip(w).map(|(v_i, w_i)| v_i - w_i).collect()
-    }
-
-    fn sum_of_squares(&self) -> f32 {
-        self.dot(&self)
-    }
-
-    fn squared_distance(&self, w: &[f32]) -> f32 {
-        self.subtract(w).sum_of_squares()
-    }
-
-    fn distance(&self, w: &[f32]) -> f64 {
-        self.squared_distance(w).sqrt() as f64
-    }
-}
-impl LinearAlg<i32> for Vec<i32> {
-    fn dot(&self, w: &[i32]) -> i32 {
-        self.iter().zip(w).map(|(v_i, w_i)| v_i * w_i).sum()
-    }
-
-    fn subtract(&self, w: &[i32]) -> Vec<i32> {
-        assert_eq!(self.len(), w.len());
-        self.iter().zip(w).map(|(v_i, w_i)| v_i - w_i).collect()
-    }
-
-    fn sum_of_squares(&self) -> i32 {
-        self.dot(&self)
-    }
-
-    fn squared_distance(&self, w: &[i32]) -> i32 {
-        self.subtract(w).sum_of_squares()
-    }
-
-    fn distance(&self, w: &[i32]) -> f64 {
-        (self.squared_distance(w) as f64).sqrt()
-    }
-}
 
 fn knn_classify(k: u8, data_points: &[DataPoint], new_point: &[f64]) -> Option<String> {
     let mut data_copy = data_points.to_vec();
@@ -164,6 +120,19 @@ where
 mod tests {
     use super::*;
     use rustlearn::datasets::iris;
+
+    #[test]
+    fn iris() {
+        let (train_set, test_set) = split_data(&parse_iris_data(), 0.70);
+        assert_eq!(train_set.len(), 105);
+        assert_eq!(test_set.len(), 45);
+
+        let k = 5;
+        let num_correct = count_correct_classifications(&train_set, &test_set, k);
+        let percent_corrent = num_correct as f32 / test_set.len() as f32;
+
+        assert!(percent_corrent > 0.9)
+    }
 
     enum Label {
         Setosa = 0,
@@ -232,18 +201,5 @@ mod tests {
         }
 
         num_correct
-    }
-
-    #[test]
-    fn iris() {
-        let (train_set, test_set) = split_data(&parse_iris_data(), 0.70);
-        assert_eq!(train_set.len(), 105);
-        assert_eq!(test_set.len(), 45);
-
-        let k = 5;
-        let num_correct = count_correct_classifications(&train_set, &test_set, k);
-        let percent_corrent = num_correct as f32 / test_set.len() as f32;
-
-        assert!(percent_corrent > 0.9)
     }
 }
