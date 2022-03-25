@@ -1,45 +1,9 @@
+use core::num;
+use rand::{seq::SliceRandom, thread_rng};
 use std::{cmp::Ordering, collections::HashMap};
 
-fn max_key_value<K, V>(vote_counts: &HashMap<K, V>) -> Option<(&K, &V)>
-where
-    V: Ord,
-{
-    vote_counts
-        .iter()
-        .max_by(|a, b| a.1.cmp(&b.1))
-        .map(|(k, v)| (k, v))
-}
-
-fn handle_label(vote_counts: &HashMap<&str, u32>, label: &str) -> u32 {
-    if vote_counts.contains_key(label) {
-        vote_counts.get(label).unwrap() + 1
-    } else {
-        1
-    }
-}
-
-fn majority_vote(labels: &[&str]) -> Option<String> {
-    let mut vote_counts: HashMap<&str, u32> = HashMap::new();
-
-    for label in labels.iter() {
-        vote_counts.insert(label, handle_label(&vote_counts, label));
-    }
-
-    if let Some((winner, winner_count)) = max_key_value(&vote_counts) {
-        let num_winners = vote_counts.values().filter(|v| *v == winner_count).count();
-
-        if num_winners == 1 {
-            return Some((**winner).to_string());
-        } else {
-            return majority_vote(&labels[..labels.len() - 2]);
-        }
-    }
-
-    None
-}
-
 #[derive(Clone, Debug)]
-struct DataPoint<'a> {
+struct LabeledPoint<'a> {
     point: Vec<f64>,
     label: &'a str,
 }
@@ -58,6 +22,7 @@ trait LinearAlg<T> {
 
 impl LinearAlg<f64> for Vec<f64> {
     fn dot(&self, w: &[f64]) -> f64 {
+        assert_eq!(self.len(), w.len());
         self.iter().zip(w).map(|(v_i, w_i)| v_i * w_i).sum()
     }
 
@@ -71,15 +36,48 @@ impl LinearAlg<f64> for Vec<f64> {
     }
 
     fn squared_distance(&self, w: &[f64]) -> f64 {
+        assert_eq!(self.len(), w.len());
         self.subtract(w).sum_of_squares()
     }
 
     fn distance(&self, w: &[f64]) -> f64 {
+        assert_eq!(self.len(), w.len());
         self.squared_distance(w).sqrt()
     }
 }
 
-fn knn_classify(k: u8, data_points: &[DataPoint], new_point: &[f64]) -> Option<String> {
+fn get_label_count(label_counts: &HashMap<&str, u32>, label: &str) -> u32 {
+    if label_counts.contains_key(label) {
+        *label_counts.get(label).unwrap()
+    } else {
+        1
+    }
+}
+
+fn find_most_common_label(labels: &[&str]) -> Option<String> {
+    let mut label_counts: HashMap<&str, u32> = HashMap::new();
+
+    for label in labels.iter() {
+        label_counts.insert(label, get_label_count(&label_counts, label) + 1);
+    }
+
+    let most_common = label_counts.iter().max_by(|a, b| a.1.cmp(&b.1));
+
+    if let Some((most_common_label, label_count)) = most_common {
+        let num_most_common = label_counts.values().filter(|v| *v == label_count).count();
+
+        if num_most_common == 1 {
+            return Some((*most_common_label).to_string());
+        } else {
+            let (_, labels) = labels.split_last()?;
+            return find_most_common_label(&labels);
+        }
+    }
+
+    None
+}
+
+fn knn_classify(k: u8, data_points: &[LabeledPoint], new_point: &[f64]) -> Option<String> {
     let mut data_copy = data_points.to_vec();
 
     data_copy.sort_by(|a, b| {
@@ -100,20 +98,7 @@ fn knn_classify(k: u8, data_points: &[DataPoint], new_point: &[f64]) -> Option<S
         .map(|a| a.label)
         .collect::<Vec<&str>>();
 
-    majority_vote(&k_nearest_labels)
-}
-
-use rand::{seq::SliceRandom, thread_rng};
-
-pub fn split_data<T>(data: &[T], prob: f64) -> (Vec<T>, Vec<T>)
-where
-    T: Clone,
-{
-    let mut data_copy = data.to_vec();
-    data_copy.shuffle(&mut thread_rng());
-    let cut = ((data.len() as f64) * prob).round() as usize;
-
-    (data_copy[..cut].to_vec(), data_copy[cut..].to_vec())
+    find_most_common_label(&k_nearest_labels)
 }
 
 #[cfg(test)]
@@ -132,6 +117,38 @@ mod tests {
         let percent_corrent = num_correct as f32 / test_set.len() as f32;
 
         assert!(percent_corrent > 0.9)
+    }
+
+    pub fn split_data<T>(data: &[T], prob: f64) -> (Vec<T>, Vec<T>)
+    where
+        T: Clone,
+    {
+        let mut data_copy = data.to_vec();
+        data_copy.shuffle(&mut thread_rng());
+        let cut = ((data.len() as f64) * prob).round() as usize;
+
+        (data_copy[..cut].to_vec(), data_copy[cut..].to_vec())
+    }
+
+    fn count_correct_classifications(
+        train_set: &[LabeledPoint],
+        test_set: &[LabeledPoint],
+        k: u8,
+    ) -> i32 {
+        let mut num_correct = 0;
+
+        for iris in test_set.iter() {
+            let predicted = knn_classify(k, &train_set, &iris.point);
+            let actual = iris.label;
+
+            if let Some(predicted) = predicted {
+                if predicted == actual {
+                    num_correct += 1;
+                }
+            }
+        }
+
+        num_correct
     }
 
     enum Label {
@@ -160,7 +177,7 @@ mod tests {
         }
     }
 
-    fn parse_iris_data<'a>() -> Vec<DataPoint<'a>> {
+    fn parse_iris_data<'a>() -> Vec<LabeledPoint<'a>> {
         let (measurements, labels) = iris::load_data();
         let measurements = measurements.data();
         let numeric_labels = labels.data();
@@ -170,7 +187,7 @@ mod tests {
 
         (0..measurements.len())
             .step_by(COLUMNS_PER_ROW)
-            .map(|i| DataPoint {
+            .map(|i| LabeledPoint {
                 point: vec![
                     measurements[i] as f64,
                     measurements[i + 1] as f64,
@@ -179,27 +196,6 @@ mod tests {
                 ],
                 label: get_label(Label::from(numeric_labels[i / 4])),
             })
-            .collect::<Vec<DataPoint>>()
-    }
-
-    fn count_correct_classifications(
-        train_set: &[DataPoint],
-        test_set: &[DataPoint],
-        k: u8,
-    ) -> i32 {
-        let mut num_correct = 0;
-
-        for iris in test_set.iter() {
-            let predicted = knn_classify(k, &train_set, &iris.point);
-            let actual = iris.label;
-
-            if let Some(predicted) = predicted {
-                if predicted == actual {
-                    num_correct += 1;
-                }
-            }
-        }
-
-        num_correct
+            .collect::<Vec<LabeledPoint>>()
     }
 }
