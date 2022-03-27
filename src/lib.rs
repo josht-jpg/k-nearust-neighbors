@@ -1,14 +1,21 @@
 use core::num;
 use rand::{seq::SliceRandom, thread_rng};
-use std::{cmp::Ordering, collections::HashMap};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    ops::{Add, Sub},
+};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct LabeledPoint<'a> {
     point: Vec<f64>,
     label: &'a str,
 }
 
-trait LinearAlg<T> {
+trait LinearAlg<T>
+where
+    T: Add + Sub,
+{
     fn dot(&self, w: &[T]) -> T;
 
     fn subtract(&self, w: &[T]) -> Vec<T>;
@@ -101,10 +108,66 @@ fn knn_classify(k: u8, data_points: &[LabeledPoint], new_point: &[f64]) -> Optio
     find_most_common_label(&k_nearest_labels)
 }
 
+use plotters::prelude::*;
+const OUT_FILE_NAME: &'static str = "vector.png";
+fn draw_vector_exmaple() -> Result<(), Box<dyn std::error::Error>> {
+    let area = BitMapBackend::new(OUT_FILE_NAME, (800, 600)).into_drawing_area();
+
+    area.fill(&WHITE)?;
+
+    let x_axis = (-4.0..4.0).step(0.1);
+    let z_axis = (-4.0..4.0).step(0.1);
+
+    let mut chart = ChartBuilder::on(&area)
+        .caption(format!("Vector Example"), ("sans", 20))
+        .build_cartesian_3d(x_axis.clone(), -4.0..4.0, z_axis.clone())?;
+
+    chart.with_projection(|mut pb| {
+        pb.yaw = 0.5;
+        pb.scale = 0.9;
+        pb.into_matrix()
+    });
+
+    chart.configure_axes().draw()?;
+
+    chart.draw_series(PointSeries::of_element(
+        vec![(1., 2., 3.)],
+        5,
+        &RED,
+        &|c, s, st| {
+            return EmptyElement::at(c)    // We want to construct a composed element on-the-fly
+            + Circle::new((0,0),s,st.filled()) // At this point, the new pixel coordinate is established
+            + Text::new(format!("{:?}", c), (10, 0), ("sans-serif", 10).into_font());
+        },
+    ))?;
+
+    chart
+        .configure_series_labels()
+        .border_style(&BLACK)
+        .draw()?;
+
+    // To avoid the IO failure being ignored silently, we manually call the present function
+    area.present().expect("Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir");
+    println!("Result has been saved to {}", OUT_FILE_NAME);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rustlearn::datasets::iris;
+
+    #[test]
+    fn linear_alg() {
+        let v = vec![1., 5., -3.];
+        let w = vec![0.5, 2., 3.];
+
+        assert_eq!(v.dot(&w), 1.5);
+        assert_eq!(v.subtract(&w), vec![0.5, 3., -6.]);
+        assert_eq!(v.sum_of_squares(), 35.);
+        assert_eq!(v.squared_distance(&w), 45.25);
+        assert_eq!(v.distance(&w), 45.25f64.sqrt())
+    }
 
     #[test]
     fn iris() {
@@ -197,5 +260,10 @@ mod tests {
                 label: get_label(Label::from(numeric_labels[i / 4])),
             })
             .collect::<Vec<LabeledPoint>>()
+    }
+
+    #[test]
+    fn vector_example_entry_poinr() {
+        draw_vector_exmaple().unwrap()
     }
 }
