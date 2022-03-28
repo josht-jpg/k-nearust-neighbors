@@ -109,42 +109,39 @@ fn knn_classify(k: u8, data_points: &[LabeledPoint], new_point: &[f64]) -> Optio
 }
 
 use plotters::prelude::*;
-const OUT_FILE_NAME: &'static str = "vector.png";
+const OUT_FILE_NAME: &'static str = "vector.gif";
 fn draw_vector_exmaple() -> Result<(), Box<dyn std::error::Error>> {
-    let area = BitMapBackend::new(OUT_FILE_NAME, (800, 600)).into_drawing_area();
+    let area = BitMapBackend::gif(OUT_FILE_NAME, (600, 400), 100)?.into_drawing_area();
 
-    area.fill(&WHITE)?;
+    //let x_axis = (-4.0..4.0).step(0.1);
+    //let z_axis = (-4.0..4.0).step(0.1);
 
-    let x_axis = (-4.0..4.0).step(0.1);
-    let z_axis = (-4.0..4.0).step(0.1);
+    for pitch in 0..157 {
+        area.fill(&WHITE)?;
+        let mut chart = ChartBuilder::on(&area)
+            // .caption(format!("Vector Example"), ("sans", 20))
+            .build_cartesian_3d(0.0..5.0, 0.0..5.0, 0.0..5.0)?;
 
-    let mut chart = ChartBuilder::on(&area)
-        .caption(format!("Vector Example"), ("sans", 20))
-        .build_cartesian_3d(x_axis.clone(), -4.0..4.0, z_axis.clone())?;
+        chart.with_projection(|mut p| {
+            p.pitch = 1.57 - (1.57 - pitch as f64 / 50.0).abs();
+            p.scale = 0.7;
+            p.into_matrix() // build the projection matrix
+        });
+        chart.configure_axes().draw()?;
 
-    chart.with_projection(|mut pb| {
-        pb.yaw = 0.5;
-        pb.scale = 0.9;
-        pb.into_matrix()
-    });
-
-    chart.configure_axes().draw()?;
-
-    chart.draw_series(PointSeries::of_element(
-        vec![(1., 2., 3.)],
-        5,
-        &RED,
-        &|c, s, st| {
-            return EmptyElement::at(c)    // We want to construct a composed element on-the-fly
+        chart.draw_series(PointSeries::of_element(
+            vec![(2.5, 3., 4.)],
+            5.5,
+            &RED,
+            &|c, s, st| {
+                return EmptyElement::at(c)    // We want to construct a composed element on-the-fly
             + Circle::new((0,0),s,st.filled()) // At this point, the new pixel coordinate is established
             + Text::new(format!("{:?}", c), (10, 0), ("sans-serif", 10).into_font());
-        },
-    ))?;
+            },
+        ))?;
 
-    chart
-        .configure_series_labels()
-        .border_style(&BLACK)
-        .draw()?;
+        area.present()?;
+    }
 
     // To avoid the IO failure being ignored silently, we manually call the present function
     area.present().expect("Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir");
@@ -263,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn vector_example_entry_poinr() {
+    fn vector_example_entry_point() {
         draw_vector_exmaple().unwrap()
     }
 }
