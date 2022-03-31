@@ -22,8 +22,6 @@ where
 
     fn sum_of_squares(&self) -> T;
 
-    fn squared_distance(&self, w: &[T]) -> T;
-
     fn distance(&self, w: &[T]) -> f64;
 }
 
@@ -42,14 +40,9 @@ impl LinearAlg<f64> for Vec<f64> {
         self.dot(&self)
     }
 
-    fn squared_distance(&self, w: &[f64]) -> f64 {
-        assert_eq!(self.len(), w.len());
-        self.subtract(w).sum_of_squares()
-    }
-
     fn distance(&self, w: &[f64]) -> f64 {
         assert_eq!(self.len(), w.len());
-        self.squared_distance(w).sqrt()
+        self.subtract(w).sum_of_squares().sqrt()
     }
 }
 
@@ -162,7 +155,6 @@ mod tests {
         assert_eq!(v.dot(&w), 1.5);
         assert_eq!(v.subtract(&w), vec![0.5, 3., -6.]);
         assert_eq!(v.sum_of_squares(), 35.);
-        assert_eq!(v.squared_distance(&w), 45.25);
         assert_eq!(v.distance(&w), 45.25f64.sqrt())
     }
 
