@@ -1,7 +1,4 @@
-use core::num;
-use rand::{seq::SliceRandom, thread_rng};
 use std::{
-    cmp::Ordering,
     collections::HashMap,
     ops::{Add, Sub},
 };
@@ -46,19 +43,36 @@ impl LinearAlg<f64> for Vec<f64> {
     }
 }
 
-fn get_label_count(label_counts: &HashMap<&str, u32>, label: &str) -> u32 {
-    if label_counts.contains_key(label) {
-        *label_counts.get(label).unwrap()
-    } else {
-        1
-    }
+fn knn_classify(k: u8, data_points: &[LabeledPoint], new_point: &[f64]) -> Option<String> {
+    let mut data_copy = data_points.to_vec();
+
+    data_copy.sort_unstable_by(|a, b| {
+        let dist_a = a.point.distance(new_point);
+        let dist_b = b.point.distance(new_point);
+
+        dist_a
+            .partial_cmp(&dist_b)
+            .expect("Cannot compare floating point numbers, encoutered a NAN")
+    });
+
+    let k_nearest_labels = &data_copy[..(k as usize)]
+        .iter()
+        .map(|a| a.label)
+        .collect::<Vec<&str>>();
+
+    find_most_common_label(&k_nearest_labels)
 }
 
 fn find_most_common_label(labels: &[&str]) -> Option<String> {
     let mut label_counts: HashMap<&str, u32> = HashMap::new();
 
     for label in labels.iter() {
-        label_counts.insert(label, get_label_count(&label_counts, label) + 1);
+        let current_label_count = if let Some(current_label_count) = label_counts.get(label) {
+            *current_label_count
+        } else {
+            0
+        };
+        label_counts.insert(label, current_label_count + 1);
     }
 
     let most_common = label_counts.iter().max_by(|a, b| a.1.cmp(&b.1));
@@ -77,74 +91,10 @@ fn find_most_common_label(labels: &[&str]) -> Option<String> {
     None
 }
 
-fn knn_classify(k: u8, data_points: &[LabeledPoint], new_point: &[f64]) -> Option<String> {
-    let mut data_copy = data_points.to_vec();
-
-    data_copy.sort_by(|a, b| {
-        let dist_a = a.point.distance(new_point);
-        let dist_b = b.point.distance(new_point);
-
-        if dist_a > dist_b {
-            Ordering::Greater
-        } else if dist_a == dist_b {
-            Ordering::Equal
-        } else {
-            Ordering::Less
-        }
-    });
-
-    let k_nearest_labels = &data_copy[..(k as usize)]
-        .iter()
-        .map(|a| a.label)
-        .collect::<Vec<&str>>();
-
-    find_most_common_label(&k_nearest_labels)
-}
-
-use plotters::prelude::*;
-const OUT_FILE_NAME: &'static str = "vector.gif";
-fn draw_vector_exmaple() -> Result<(), Box<dyn std::error::Error>> {
-    let area = BitMapBackend::gif(OUT_FILE_NAME, (600, 400), 100)?.into_drawing_area();
-
-    //let x_axis = (-4.0..4.0).step(0.1);
-    //let z_axis = (-4.0..4.0).step(0.1);
-
-    for pitch in 0..157 {
-        area.fill(&WHITE)?;
-        let mut chart = ChartBuilder::on(&area)
-            // .caption(format!("Vector Example"), ("sans", 20))
-            .build_cartesian_3d(0.0..5.0, 0.0..5.0, 0.0..5.0)?;
-
-        chart.with_projection(|mut p| {
-            p.pitch = 1.57 - (1.57 - pitch as f64 / 50.0).abs();
-            p.scale = 0.7;
-            p.into_matrix() // build the projection matrix
-        });
-        chart.configure_axes().draw()?;
-
-        chart.draw_series(PointSeries::of_element(
-            vec![(2.5, 3., 4.)],
-            5.5,
-            &RED,
-            &|c, s, st| {
-                return EmptyElement::at(c)    // We want to construct a composed element on-the-fly
-            + Circle::new((0,0),s,st.filled()) // At this point, the new pixel coordinate is established
-            + Text::new(format!("{:?}", c), (10, 0), ("sans-serif", 10).into_font());
-            },
-        ))?;
-
-        area.present()?;
-    }
-
-    // To avoid the IO failure being ignored silently, we manually call the present function
-    area.present().expect("Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir");
-    println!("Result has been saved to {}", OUT_FILE_NAME);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{seq::SliceRandom, thread_rng};
     use rustlearn::datasets::iris;
 
     #[test]
@@ -171,23 +121,26 @@ mod tests {
         assert!(percent_corrent > 0.9)
     }
 
-    pub fn split_data<T>(data: &[T], prob: f64) -> (Vec<T>, Vec<T>)
+    fn split_data<T>(data: &[T], prob: f64) -> (Vec<T>, Vec<T>)
     where
         T: Clone,
     {
         let mut data_copy = data.to_vec();
         data_copy.shuffle(&mut thread_rng());
-        let cut = ((data.len() as f64) * prob).round() as usize;
+        let split_index = ((data.len() as f64) * prob).round() as usize;
 
-        (data_copy[..cut].to_vec(), data_copy[cut..].to_vec())
+        (
+            data_copy[..split_index].to_vec(),
+            data_copy[split_index..].to_vec(),
+        )
     }
 
     fn count_correct_classifications(
         train_set: &[LabeledPoint],
         test_set: &[LabeledPoint],
         k: u8,
-    ) -> i32 {
-        let mut num_correct = 0;
+    ) -> u32 {
+        let mut num_correct: u32 = 0;
 
         for iris in test_set.iter() {
             let predicted = knn_classify(k, &train_set, &iris.point);
@@ -201,6 +154,28 @@ mod tests {
         }
 
         num_correct
+    }
+
+    fn parse_iris_data<'a>() -> Vec<LabeledPoint<'a>> {
+        let (measurements, labels) = iris::load_data();
+        let measurements = measurements.data();
+        let numeric_labels = labels.data();
+
+        #[allow(non_snake_case)]
+        let COLUMNS_PER_ROW = 4;
+
+        (0..measurements.len())
+            .step_by(COLUMNS_PER_ROW)
+            .map(|i| LabeledPoint {
+                point: vec![
+                    measurements[i] as f64,
+                    measurements[i + 1] as f64,
+                    measurements[i + 2] as f64,
+                    measurements[i + 3] as f64,
+                ],
+                label: get_label(Label::from(numeric_labels[i / 4])),
+            })
+            .collect::<Vec<LabeledPoint>>()
     }
 
     enum Label {
@@ -227,32 +202,5 @@ mod tests {
             Label::Versicolor => "Versicolor",
             Label::Virginica => "Virginica",
         }
-    }
-
-    fn parse_iris_data<'a>() -> Vec<LabeledPoint<'a>> {
-        let (measurements, labels) = iris::load_data();
-        let measurements = measurements.data();
-        let numeric_labels = labels.data();
-
-        #[allow(non_snake_case)]
-        let COLUMNS_PER_ROW = 4;
-
-        (0..measurements.len())
-            .step_by(COLUMNS_PER_ROW)
-            .map(|i| LabeledPoint {
-                point: vec![
-                    measurements[i] as f64,
-                    measurements[i + 1] as f64,
-                    measurements[i + 2] as f64,
-                    measurements[i + 3] as f64,
-                ],
-                label: get_label(Label::from(numeric_labels[i / 4])),
-            })
-            .collect::<Vec<LabeledPoint>>()
-    }
-
-    #[test]
-    fn vector_example_entry_point() {
-        draw_vector_exmaple().unwrap()
     }
 }
