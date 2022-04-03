@@ -79,10 +79,12 @@ fn find_most_common_label(labels: &[&str]) -> Option<String> {
         .iter()
         .max_by(|(_label_a, count_a), (_label_b, count_b)| count_a.cmp(&count_b));
 
-    if let Some((most_common_label, label_count)) = most_common {
-        let num_most_common = label_counts.values().filter(|v| *v == label_count).count();
+    if let Some((most_common_label, most_common_label_count)) = most_common {
+        let is_tie_for_most_common = label_counts
+            .iter()
+            .any(|(label, count)| count == most_common_label_count && label != most_common_label);
 
-        if num_most_common == 1 {
+        if !is_tie_for_most_common {
             return Some((*most_common_label).to_string());
         } else {
             let (_, labels) = labels.split_last()?;
