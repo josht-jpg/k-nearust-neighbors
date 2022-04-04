@@ -44,9 +44,9 @@ impl LinearAlg<f64> for Vec<f64> {
 }
 
 fn knn_classify(k: u8, data_points: &[LabeledPoint], new_point: &[f64]) -> Option<String> {
-    let mut data_copy = data_points.to_vec();
+    let mut data_points_copy = data_points.to_vec();
 
-    data_copy.sort_unstable_by(|a, b| {
+    data_points_copy.sort_unstable_by(|a, b| {
         let dist_a = a.point.distance(new_point);
         let dist_b = b.point.distance(new_point);
 
@@ -55,12 +55,13 @@ fn knn_classify(k: u8, data_points: &[LabeledPoint], new_point: &[f64]) -> Optio
             .expect("Cannot compare floating point numbers, encoutered a NAN")
     });
 
-    let k_nearest_labels = &data_copy[..(k as usize)]
+    let k_nearest_labels = &data_points_copy[..(k as usize)]
         .iter()
         .map(|a| a.label)
         .collect::<Vec<&str>>();
 
-    find_most_common_label(&k_nearest_labels)
+    let predicted_label = find_most_common_label(&k_nearest_labels);
+    predicted_label
 }
 
 fn find_most_common_label(labels: &[&str]) -> Option<String> {
@@ -87,7 +88,7 @@ fn find_most_common_label(labels: &[&str]) -> Option<String> {
         if !is_tie_for_most_common {
             return Some((*most_common_label).to_string());
         } else {
-            let (_, labels) = labels.split_last()?;
+            let (_last, labels) = labels.split_last()?;
             return find_most_common_label(&labels);
         }
     }
