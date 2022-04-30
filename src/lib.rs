@@ -3,7 +3,7 @@ use std::{
     ops::{Add, Sub},
 };
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct LabeledPoint<'a> {
     point: Vec<f64>,
     label: &'a str,
@@ -100,7 +100,6 @@ fn find_most_common_label(labels: &[&str]) -> Option<String> {
 mod tests {
     use super::*;
     use rand::{seq::SliceRandom, thread_rng};
-    use rustlearn::datasets::iris;
 
     #[test]
     fn linear_alg() {
@@ -110,12 +109,22 @@ mod tests {
         assert_eq!(v.dot(&w), 1.5);
         assert_eq!(v.subtract(&w), vec![0.5, 3., -6.]);
         assert_eq!(v.sum_of_squares(), 35.);
-        assert_eq!(v.distance(&w), 45.25f64.sqrt())
+        assert_eq!(v.distance(&w), 45.25f64.sqrt());
     }
 
+    macro_rules! await_fn {
+        ($arg:expr) => {{
+            tokio_test::block_on($arg)
+        }};
+    }
+
+    type GenericResult<T> = Result<T, Box<dyn std::error::Error>>;
     #[test]
-    fn iris() {
-        let (train_set, test_set) = split_data(&parse_iris_data(), 0.70);
+    fn iris() -> GenericResult<()> {
+        let raw_iris_data = await_fn!(get_iris_data())?;
+        let iris_data = process_iris_data(&raw_iris_data)?;
+
+        let (train_set, test_set) = split_data(&iris_data, 0.70);
         assert_eq!(train_set.len(), 105);
         assert_eq!(test_set.len(), 45);
 
@@ -123,7 +132,9 @@ mod tests {
         let num_correct = count_correct_classifications(&train_set, &test_set, k);
         let percent_corrent = num_correct as f32 / test_set.len() as f32;
 
-        assert!(percent_corrent > 0.9)
+        assert!(percent_corrent > 0.9);
+
+        Ok(())
     }
 
     fn split_data<T>(data: &[T], prob: f64) -> (Vec<T>, Vec<T>)
@@ -161,51 +172,30 @@ mod tests {
         num_correct
     }
 
-    fn parse_iris_data<'a>() -> Vec<LabeledPoint<'a>> {
-        let (measurements, labels) = iris::load_data();
-        let measurements = measurements.data();
-        let numeric_labels = labels.data();
+    async fn get_iris_data() -> Result<String, reqwest::Error> {
+        let body = reqwest::get(
+            "https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data",
+        )
+        .await?
+        .text()
+        .await?;
 
-        #[allow(non_snake_case)]
-        let COLUMNS_PER_ROW = 4;
+        Ok(body)
+    }
 
-        (0..measurements.len())
-            .step_by(COLUMNS_PER_ROW)
-            .map(|i| LabeledPoint {
-                point: vec![
-                    measurements[i] as f64,
-                    measurements[i + 1] as f64,
-                    measurements[i + 2] as f64,
-                    measurements[i + 3] as f64,
-                ],
-                label: get_label(Label::from(numeric_labels[i / 4])),
+    fn process_iris_data<'a>(body: &str) -> GenericResult<Vec<LabeledPoint>> {
+        body.split("\n")
+            .filter(|data_point| data_point.len() > 0)
+            .map(|data_point| -> GenericResult<LabeledPoint> {
+                let columns = data_point.split(",").collect::<Vec<&str>>();
+                let (label, point) = columns.split_last().ok_or("Cannot split last")?;
+                let point = point
+                    .iter()
+                    .map(|feature| feature.parse::<f64>())
+                    .collect::<Result<Vec<f64>, std::num::ParseFloatError>>()?;
+
+                Ok(LabeledPoint { label, point })
             })
-            .collect::<Vec<LabeledPoint>>()
-    }
-
-    enum Label {
-        Setosa = 0,
-        Versicolor = 1,
-        Virginica = 2,
-    }
-
-    impl From<f32> for Label {
-        #[allow(illegal_floating_point_literal_pattern)]
-        fn from(f: f32) -> Self {
-            match f {
-                0. => Self::Setosa,
-                1. => Self::Versicolor,
-                2. => Self::Virginica,
-                _ => panic!("Labels have been incorrectly loaded"),
-            }
-        }
-    }
-
-    fn get_label<'a>(numeric_label: Label) -> &'a str {
-        match numeric_label {
-            Label::Setosa => "Setosa",
-            Label::Versicolor => "Versicolor",
-            Label::Virginica => "Virginica",
-        }
+            .collect::<GenericResult<Vec<LabeledPoint>>>()
     }
 }
