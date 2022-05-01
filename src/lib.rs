@@ -118,23 +118,33 @@ mod tests {
         }};
     }
 
+    async fn get_iris_data() -> Result<String, reqwest::Error> {
+        let body = reqwest::get(
+            "https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data",
+        )
+        .await?
+        .text()
+        .await?;
+
+        Ok(body)
+    }
+
     type GenericResult<T> = Result<T, Box<dyn std::error::Error>>;
-    #[test]
-    fn iris() -> GenericResult<()> {
-        let raw_iris_data = await_fn!(get_iris_data())?;
-        let iris_data = process_iris_data(&raw_iris_data)?;
 
-        let (train_set, test_set) = split_data(&iris_data, 0.70);
-        assert_eq!(train_set.len(), 105);
-        assert_eq!(test_set.len(), 45);
+    fn process_iris_data<'a>(body: &str) -> GenericResult<Vec<LabeledPoint>> {
+        body.split("\n")
+            .filter(|data_point| data_point.len() > 0)
+            .map(|data_point| -> GenericResult<LabeledPoint> {
+                let columns = data_point.split(",").collect::<Vec<&str>>();
+                let (label, point) = columns.split_last().ok_or("Cannot split last")?;
+                let point = point
+                    .iter()
+                    .map(|feature| feature.parse::<f64>())
+                    .collect::<Result<Vec<f64>, std::num::ParseFloatError>>()?;
 
-        let k = 5;
-        let num_correct = count_correct_classifications(&train_set, &test_set, k);
-        let percent_corrent = num_correct as f32 / test_set.len() as f32;
-
-        assert!(percent_corrent > 0.9);
-
-        Ok(())
+                Ok(LabeledPoint { label, point })
+            })
+            .collect::<GenericResult<Vec<LabeledPoint>>>()
     }
 
     fn split_data<T>(data: &[T], prob: f64) -> (Vec<T>, Vec<T>)
@@ -172,30 +182,21 @@ mod tests {
         num_correct
     }
 
-    async fn get_iris_data() -> Result<String, reqwest::Error> {
-        let body = reqwest::get(
-            "https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data",
-        )
-        .await?
-        .text()
-        .await?;
+    #[test]
+    fn iris() -> GenericResult<()> {
+        let raw_iris_data = await_fn!(get_iris_data())?;
+        let iris_data = process_iris_data(&raw_iris_data)?;
 
-        Ok(body)
-    }
+        let (train_set, test_set) = split_data(&iris_data, 0.70);
+        assert_eq!(train_set.len(), 105);
+        assert_eq!(test_set.len(), 45);
 
-    fn process_iris_data<'a>(body: &str) -> GenericResult<Vec<LabeledPoint>> {
-        body.split("\n")
-            .filter(|data_point| data_point.len() > 0)
-            .map(|data_point| -> GenericResult<LabeledPoint> {
-                let columns = data_point.split(",").collect::<Vec<&str>>();
-                let (label, point) = columns.split_last().ok_or("Cannot split last")?;
-                let point = point
-                    .iter()
-                    .map(|feature| feature.parse::<f64>())
-                    .collect::<Result<Vec<f64>, std::num::ParseFloatError>>()?;
+        let k = 5;
+        let num_correct = count_correct_classifications(&train_set, &test_set, k);
+        let percent_corrent = num_correct as f32 / test_set.len() as f32;
 
-                Ok(LabeledPoint { label, point })
-            })
-            .collect::<GenericResult<Vec<LabeledPoint>>>()
+        assert!(percent_corrent > 0.9);
+
+        Ok(())
     }
 }
