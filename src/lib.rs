@@ -131,7 +131,7 @@ mod tests {
 
     type GenericResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-    fn process_iris_data<'a>(body: &str) -> GenericResult<Vec<LabeledPoint>> {
+    fn process_iris_data(body: &str) -> GenericResult<Vec<LabeledPoint>> {
         body.split("\n")
             .filter(|data_point| data_point.len() > 0)
             .map(|data_point| -> GenericResult<LabeledPoint> {
